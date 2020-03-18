@@ -21,11 +21,6 @@ namespace Sounds
     {
         const string ClipboardType = "SoundsItem";
 
-        TabbedThumbnail preview;
-        ThumbnailToolBarButton playPauseTaskbarButton;
-        ThumbnailToolBarButton prevTaskbarButton;
-        ThumbnailToolBarButton nextTaskbarButton;
-
         // some take Icons, not Bitmaps
         Icon stopIcon = Icon.FromHandle(Properties.Resources.Stop.GetHicon());
         Icon playIcon = Icon.FromHandle(Properties.Resources.Play.GetHicon());
@@ -33,11 +28,6 @@ namespace Sounds
         Icon nextIcon = Icon.FromHandle(Properties.Resources.Next.GetHicon());
         Icon pauseIcon = Icon.FromHandle(Properties.Resources.Pause.GetHicon());
 
-        bool showInfoPane = true;
-        bool showToolBar = true;
-        bool showStatusBar = true;
-
-        ToolStripTrackBar tb = new ToolStripTrackBar();
         MediaPlayer mp = new MediaPlayer();
         TagLib.File activeFile = null;
         // not if the MediaPlayer is, but if we should at all
@@ -49,8 +39,6 @@ namespace Sounds
         int timeIncrement = 15;
         bool repeat = false;
         bool deleteOnNext = false;
-        bool recursive = false;
-        bool showDialogs;
 
         string playlistFile = null;
         bool dirty = false;
@@ -85,13 +73,11 @@ namespace Sounds
                 // clamp value
                 vol = Math.Min(Math.Max(value, 0), 1);
                 mp.Volume = vol;
-                tb.Value = Convert.ToInt32(mp.Volume * 100);
                 var simplePercent = new CultureInfo(CultureInfo.InvariantCulture.Name);
                 simplePercent.NumberFormat.PercentDecimalDigits = 0;
                 simplePercent.NumberFormat.PercentPositivePattern = 1;
                 volumeButton.Text = string.Format(simplePercent, "{0:P}", mp.Volume);
                 volumeStatusButton.Text = string.Format(simplePercent, "{0:P}", mp.Volume);
-                UpdateMenus();
             }
         }
 
@@ -101,7 +87,6 @@ namespace Sounds
             set
             {
                 volIncrement = value;
-                tb.LargeChange = VolumeIncrement;
             }
         }
 
@@ -117,92 +102,11 @@ namespace Sounds
 
         public MainForm()
         {
-#if ForceJA
-            System.Threading.Thread.CurrentThread.CurrentUICulture = new CultureInfo("ja-JP");
-#endif
             InitializeComponent();
-            // native ToolStrips
-            if (Properties.Settings.Default.NativeToolStripRendering)
-                ToolStripManager.Renderer = new ToolStripAeroRenderer(ToolbarTheme.Toolbar);
-            // the designer doesn't want to use icons from resource files
-            Icon = Properties.Resources.AppIcon;
-            // load settings
-            showToolBar = Properties.Settings.Default.ShowToolBar;
-            showStatusBar = Properties.Settings.Default.ShowStatusBar;
-            showInfoPane = Properties.Settings.Default.ShowInfoPane;
-            deleteOnNext = Properties.Settings.Default.DeleteOnNext;
-            repeat = Properties.Settings.Default.Repeat;
-            VolumeIncrement = Properties.Settings.Default.VolumeShortcutIncrement;
-            TimeIncrement = Properties.Settings.Default.TimeShortcutSeconds;
-            recursive = Properties.Settings.Default.AddFolderRecursive;
-            showDialogs = Properties.Settings.Default.ShowConfirmationDialogs;
 
-            if (TaskbarManager.IsPlatformSupported)
-            {
-                preview = new TabbedThumbnail(Handle, toolStripContainer1.Handle);
-                preview.SetWindowIcon(Properties.Resources.AppIcon);
-                preview.DisplayFrameAroundBitmap = true;
-                preview.Title = Text;
-                TaskbarManager.Instance.TabbedThumbnail.AddThumbnailPreview(preview);
-                preview.TabbedThumbnailBitmapRequested += (o, ev) =>
-                {
-                    // TODO: This seems to be a bit slow on the uptake
-                    if (playing)
-                    {
-                        preview.SetImage(AlbumArt);
-                    }
-                    else
-                    {
-                        // HACK: the preview code is horribly broken with
-                        // minimized forms, try to contain it?
-                        if (WindowState == FormWindowState.Minimized)
-                        {
-                            // desperate measures to stop an NRE
-                            using (var empty = new Bitmap(RestoreBounds.Width, RestoreBounds.Height))
-                            {
-                                preview.SetImage(empty);
-                            }
-                        }
-                        else
-                            preview.InvalidatePreview();
-                    }
-                    ev.Handled = true;
-                };
-                // Because we're using a thumbnail preview, we need to handle these
-                preview.TabbedThumbnailMinimized += (o, ev) => WindowState = FormWindowState.Minimized;
-                preview.TabbedThumbnailClosed += (o, ev) => Close();
-                preview.TabbedThumbnailActivated += (o, ev) =>
-                {
-                    if (WindowState == FormWindowState.Minimized)
-                        WindowState = FormWindowState.Normal;
-                    Activate();
-                };
-                preview.TabbedThumbnailMaximized += (o, ev) => WindowState = FormWindowState.Maximized;
-
-                // finally, wire up the buttons
-                playPauseTaskbarButton = new ThumbnailToolBarButton(playIcon, playToolStripButton.Text);
-                playPauseTaskbarButton.Click += (o, ev) => PlayPauseToggle();
-                prevTaskbarButton = new ThumbnailToolBarButton(prevIcon, previousToolStripButton.Text);
-                prevTaskbarButton.Click += (o, ev) => Previous();
-                nextTaskbarButton = new ThumbnailToolBarButton(nextIcon, nextToolStripButton.Text);
-                nextTaskbarButton.Click += (o, ev) => Next();
-
-                TaskbarManager.Instance.ThumbnailToolBars.AddButtons(toolStripContainer1.Handle,
-                    prevTaskbarButton, playPauseTaskbarButton, nextTaskbarButton);
-            }
-
-            // construct volume widget
-            tb.Maximum = 100;
-            tb.TickFrequency = 10;
-            //tb.LargeChange = volIncrement;
-            tb.Scroll += (o, e) =>
-            {
-                Volume = tb.Value / 100d;
-            };
             // a new dropdown w/ a system rendering looks more like a panel
             var dd = new ToolStripDropDown();
             dd.RenderMode = ToolStripRenderMode.System;
-            dd.Items.Add(tb);
             volumeButton.DropDown = dd;
             volumeStatusButton.DropDown = dd;
 
@@ -237,30 +141,17 @@ namespace Sounds
             };
 
             // finally init UI by creating PL (args will override it)
-            NewPlaylist();
+            //NewPlaylist();
         }
 
         private void MainForm_Shown(object sender, EventArgs e)
         {
             // we need to do it when the form is visible so taskbar updates work
             // do initial init of menubar and such
-            UpdateMenus();
             UpdateUI();
             UpdateTitle();
             // mp's value is, but not the UI bits; do this to update them
             Volume = 0.50;
-        }
-
-        public void DeleteSelected()
-        {
-            if (listView1.SelectedItems.Cast<ListViewItem>().Any(x => x.Tag == activeFile))
-                Stop();
-
-            foreach (ListViewItem lvi in listView1.SelectedItems)
-                listView1.Items.Remove(lvi);
-
-            Dirty = listView1.Items.Count > 0 && playlistFile != null;
-            UpdatePlaylistTotal();
         }
 
         public bool AddFile(string fileName, bool update = true)
@@ -311,7 +202,6 @@ namespace Sounds
                 if (doAdd && update)
                 {
                     Dirty = true; // will get unset by Open if so
-                    UpdatePlaylistTotal();
                 }
             }
             return doAdd;
@@ -320,46 +210,13 @@ namespace Sounds
         public bool AddDirectory(string name, bool update = true)
         {
             var didAdd = false;
-            if (recursive)
+            foreach (var f in Directory.EnumerateFiles(name).OrderBy(x => x))
             {
-                foreach (var f in Directory.EnumerateFiles(name).OrderBy(x => x)
-                    .Concat(Directory.EnumerateDirectories(name).OrderBy(x => x)))
-                {
-                    didAdd = AddItem(f, false) || didAdd;
-                }
-            }
-            else
-            {
-                foreach (var f in Directory.EnumerateFiles(name).OrderBy(x => x))
-                {
-                    didAdd = AddFile(f, false) || didAdd;
-                }
+                didAdd = AddFile(f, false) || didAdd;
             }
             if (didAdd && update)
             {
                 Dirty = true;
-                UpdatePlaylistTotal();
-            }
-            return didAdd;
-        }
-
-        public bool AddItem(string name, bool update = false, bool append = true)
-        {
-            var didAdd = false;
-            if (Directory.Exists(name))
-            {
-                didAdd = didAdd || AddDirectory(name);
-            }
-            else if (File.Exists(name))
-            {
-                if (append && M3UParser.FileIsM3U(name))
-                {
-                    OpenPlaylist(name, true);
-                }
-                else
-                {
-                    didAdd = didAdd || AddFile(name, update);
-                }
             }
             return didAdd;
         }
@@ -370,7 +227,6 @@ namespace Sounds
             {
                 listView1.Items.Cast<ListViewItem>().Where(x => x.Tag == old).First().Remove();
                 Dirty = listView1.Items.Count > 0 && playlistFile != null;
-                UpdatePlaylistTotal();
             }
         }
 
@@ -379,7 +235,6 @@ namespace Sounds
             if (!playSelected && Paused)
             {
                 mp.Play();
-                UpdateMenus();
             }
             else
             {
@@ -418,22 +273,11 @@ namespace Sounds
             mp.Play();
             UpdateTitle();
             UpdateUI();
-            UpdateMenus();
         }
 
         public void Pause()
         {
             mp.Pause();
-            UpdateMenus();
-        }
-
-        public void PlayPauseToggle()
-        {
-            if (!playing || Paused)
-                PlayAndSet(false);
-            else if (playing)
-                Pause();
-            UpdateMenus();
         }
 
         public void UpdateTitle()
@@ -456,26 +300,11 @@ namespace Sounds
                 else
                     Text = string.Format("{0} [{1}]",
                         activeFile.Name, fileNameFinalTitle);
-
-                // fill out metadata
-                if (TaskbarManager.IsPlatformSupported)
-                {
-                    preview.Title = Text;
-                    preview.Tooltip = Text;
-                    preview.SetImage(AlbumArt);
-                }
             }
             else
             {
                 // nop it out
                 Text = fileNameFinalTitle;
-
-                if (TaskbarManager.IsPlatformSupported)
-                {
-                    preview.InvalidatePreview();
-                    preview.Title = Text;
-                    preview.Tooltip = Text;
-                }
             }
         }
 
@@ -498,14 +327,10 @@ namespace Sounds
 
                 albumArtBox.Image = AlbumArt;
 
-                panel1.Visible = showInfoPane;
+                panel1.Visible = true;
 
                 // embolden the active song
                 var newBoldItem = listView1.Items.Cast<ListViewItem>().FirstOrDefault(x => x.Tag == activeFile);
-#if DEBUG
-                if (newBoldItem == null)
-                    System.Diagnostics.Debugger.Break();
-#endif
                 if (newBoldItem != null)
                     newBoldItem.Font = new Font(listView1.Font, FontStyle.Bold);
             }
@@ -524,19 +349,9 @@ namespace Sounds
 
                 panel1.Visible = false;
 
-                if (TaskbarManager.IsPlatformSupported)
-                {
-                    preview.InvalidatePreview();
-                    preview.Title = Text;
-                    preview.Tooltip = Text;
-                }
             }
 
             // we can run this regardless
-            statusStrip1.Visible = showStatusBar;
-            toolStrip1.Visible = showToolBar;
-            volumeStatusButton.Enabled = !showToolBar;
-            volumeStatusButton.Visible = !showToolBar;
             errorMessageLabel.Text = string.Empty;
             foreach (var lvi in listView1.Items.Cast<ListViewItem>().Where(x => x.Tag != activeFile))
             {
@@ -595,130 +410,7 @@ namespace Sounds
             {
                 dirty = value;
                 UpdateTitle();
-                UpdateMenus();
             }
-        }
-
-        public void UpdateMenus()
-        {
-            var selected = listView1.SelectedItems.Count > 0;
-            var any = listView1.Items.Count > 0;
-            var atLeastTwo = listView1.Items.Count > 1;
-
-            savePlaylistToolStripMenuItem.Enabled = Dirty;
-
-            removeSelectedToolStripMenuItem.Enabled = selected;
-            propertiesToolStripMenuItem.Enabled = playing || selected;
-            shuffleToolStripMenuItem.Enabled = atLeastTwo;
-
-            var canPlay = playing ? Paused : any;
-            var canPause = playing ? !Paused : false;
-            // localizable!
-            var toggleDesc = TypeDescriptor.GetConverter(typeof(Keys))
-                .ConvertToString(Keys.Control | Keys.Space);
-            
-            playToolStripMenuItem.Enabled = canPlay;
-            playToolStripMenuItem.ShortcutKeyDisplayString =
-                canPlay ? toggleDesc : string.Empty;
-            pauseToolStripMenuItem.Enabled = canPause;
-            pauseToolStripMenuItem.ShortcutKeyDisplayString =
-                canPause ? toggleDesc : string.Empty;
-            stopToolStripMenuItem.Enabled = playing;
-            stopToolStripButton.Enabled = playing;
-            playToolStripMenuItem.Checked = playing && !Paused;
-            pauseToolStripMenuItem.Checked = playing && Paused;
-            stopToolStripMenuItem.Checked = !playing;
-
-            previousToolStripMenuItem.Enabled = playing;
-            nextToolStripMenuItem.Enabled = playing;
-            rewindToolStripMenuItem.Enabled = playing;
-            skipAheadToolStripMenuItem.Enabled = playing;
-
-            playToolStripButton.Enabled = canPlay;
-            // ensure visibility in all cases
-            playToolStripButton.Visible = canPlay || !playing;
-            pauseToolStripButton.Enabled = canPause;
-            pauseToolStripButton.Visible = canPause;
-            previousToolStripButton.Enabled = playing;
-            nextToolStripButton.Enabled = playing;
-
-            volumeUpToolStripMenuItem.Enabled = Volume != 1;
-            volumeDownToolStripMenuItem.Enabled = Volume != 0;
-            muteToolStripMenuItem.Enabled = Volume > 0;
-
-            playContextToolStripMenuItem.Enabled = selected;
-            propertiesContextToolStripMenuItem.Enabled = selected;
-            removeContextToolStripMenuItem.Enabled = selected;
-            removeSelectedToolStripButton.Enabled = selected;
-            cutToolStripMenuItem.Enabled = selected;
-            copyToolStripMenuItem.Enabled = selected;
-            cutContextToolStripMenuItem.Enabled = selected;
-            copyContextToolStripMenuItem.Enabled = selected;
-
-            selectAllToolStripMenuItem.Enabled = any;
-            selectAllContextToolStripMenuItem.Enabled = any;
-
-            var canPaste = Clipboard.ContainsData(ClipboardType);
-            pasteToolStripMenuItem.Enabled = canPaste;
-            pasteContextToolStripMenuItem.Enabled = canPaste;
-
-            repeatToolStripMenuItem.Checked = repeat;
-
-            // TODO: make these translatable messages
-            if (TaskbarManager.IsPlatformSupported)
-            {
-                prevTaskbarButton.Enabled = playing;
-                nextTaskbarButton.Enabled = playing;
-                if (playing && canPause)
-                {
-                    playPauseTaskbarButton.Icon = pauseIcon;
-                    playPauseTaskbarButton.Tooltip = pauseToolStripButton.Text;
-                    playPauseTaskbarButton.Enabled = true;
-                }
-                else if (playing && canPlay)
-                {
-                    playPauseTaskbarButton.Icon = playIcon;
-                    playPauseTaskbarButton.Tooltip = playToolStripButton.Text;
-                    playPauseTaskbarButton.Enabled = true;
-                }
-                else
-                {
-                    playPauseTaskbarButton.Enabled = false;
-                }
-            }
-
-            // status bar/task bar icon image
-            if (!playing)
-            {
-                positionLabel.Image = Properties.Resources.Stop;
-                if (TaskbarManager.IsPlatformSupported && Visible)
-                {
-                    TaskbarManager.Instance.SetOverlayIcon(stopIcon, MiscStrings.stopped);
-                }
-            }
-            else if (playing && Paused)
-            {
-                positionLabel.Image = Properties.Resources.Pause;
-                if (TaskbarManager.IsPlatformSupported && Visible)
-                {
-                    TaskbarManager.Instance.SetOverlayIcon(pauseIcon, MiscStrings.paused);
-                }
-            }
-            else if (playing && !Paused)
-            {
-                positionLabel.Image = Properties.Resources.Play;
-                if (TaskbarManager.IsPlatformSupported && Visible)
-                {
-                    TaskbarManager.Instance.SetOverlayIcon(playIcon, MiscStrings.playing);
-                }
-            }
-        }
-
-        public void UpdatePlaylistTotal()
-        {
-            var plTotal = listView1.Items.Cast<ListViewItem>().Sum(x => ((TagLib.File)x.Tag).Properties.Duration.TotalSeconds);
-            var plTotalSpan = new TimeSpan(0, 0, Convert.ToInt32(plTotal));
-            playlistTotalLabel.Text = string.Format("{0} ({1})", listView1.Items.Count, plTotalSpan.ToString());
         }
 
         public void Stop()
@@ -731,7 +423,6 @@ namespace Sounds
 
             UpdateTitle();
             UpdateUI();
-            UpdateMenus();
         }
 
         public void Previous()
@@ -791,105 +482,6 @@ namespace Sounds
             }
         }
 
-        public void Shuffle()
-        {
-            var r = new Random();
-            for (int n = listView1.Items.Count - 1; n > 0; --n)
-            {
-                int k = r.Next(n + 1);
-                var temp = (ListViewItem)listView1.Items[n].Clone();
-                listView1.Items[n] = (ListViewItem)listView1.Items[k].Clone();
-                listView1.Items[k] = temp;
-            }
-            Dirty = true;
-        }
-
-        public void NewPlaylist()
-        {
-            Stop();
-            playlistFile = null;
-            listView1.Items.Clear();
-            Dirty = false;
-            UpdatePlaylistTotal();
-        }
-
-        public void OpenPlaylist(string fileName, bool append = false)
-        {
-            if (!append)
-            {
-                NewPlaylist();
-                playlistFile = fileName;
-            }
-
-            var text = File.ReadAllText(fileName);
-            var splitText = Regex.Split(text, @"\r?\n");
-            var didAdd = false;
-            foreach (var f in M3UParser.Parse(splitText, Path.GetDirectoryName(fileName)))
-            {
-                didAdd = didAdd || AddItem(f, false);
-            }
-            Dirty = append && didAdd; // appending always dirty, opening is not
-            UpdatePlaylistTotal();
-        }
-
-        public void SavePlaylist(bool forceDialog)
-        {
-            if (forceDialog || string.IsNullOrEmpty(playlistFile))
-            {
-                if (savePlaylistDialog.ShowDialog(this) == DialogResult.OK)
-                {
-                    playlistFile = savePlaylistDialog.FileName;
-                }
-                else return;
-            }
-
-            var files = listView1.Items.Cast<ListViewItem>().Select(x => (TagLib.File)x.Tag);
-            // TODO: this should resolve the lowest common denominator root
-            // instead of only tolerating a single shared root
-            var hasSharedRoot = files.ToLookup(x => Path.GetDirectoryName(x.Name)).Count() == 1 &&
-                Path.GetDirectoryName(files.FirstOrDefault()?.Name) == Path.GetDirectoryName(playlistFile);
-
-            var toWrite = new StringBuilder();
-            toWrite.AppendLine("#EXTM3U");
-            foreach (var f in files)
-            {
-                // write an EXT tag if we have the metadata for it
-                if (f.Tag.Title != null && f.Tag.AlbumArtists.Length > 0)
-                {
-                    toWrite.AppendLine(string.Format("#EXTINF:{0},{1} - {2}",
-                        Math.Round(f.Properties.Duration.TotalSeconds),
-                        f.Tag.AlbumArtists.FirstOrDefault(), f.Tag.Title));
-                }
-                if (hasSharedRoot)
-                {
-                    toWrite.AppendLine(Path.GetFileName(f.Name));
-                }
-                else
-                {
-                    toWrite.AppendLine(f.Name);
-                }
-            }
-            File.WriteAllText(playlistFile, toWrite.ToString(), Encoding.UTF8);
-            Dirty = false;
-        }
-
-        private void addFilesToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            var shouldUpdate = false;
-            if (addFilesDialog.ShowDialog(this) == DialogResult.OK)
-            {
-                foreach (var f in addFilesDialog.FileNames)
-                {
-                    shouldUpdate = AddItem(f) || shouldUpdate;
-                }
-            }
-            if (shouldUpdate)
-            {
-                Dirty = true;
-                UpdatePlaylistTotal();
-            }
-        }
-
         private void playToolStripMenuItem_Click(object sender, EventArgs e)
         {
             PlayAndSet(false);
@@ -945,114 +537,14 @@ namespace Sounds
             Previous();
         }
 
-        private void removeSelectedToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            DeleteSelected();
-        }
-
-        private void quitToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            Application.Exit();
-        }
-
-        public bool ChangePlaylistAskStop(string msg)
-        {
-            if (!showDialogs) return true; // stop it
-
-            // should count even when paused?
-            if (playing)
-                return MessageBox.Show(this,
-                    msg, "Sounds", MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Warning) == DialogResult.Yes;
-            else return true;
-        }
-
-        // use result because tri-state
-        // also, must be done beforehand and inline, as logic is more complex
-        public DialogResult ChangePlaylistAskDirty()
-        {
-            if (!showDialogs) return DialogResult.No; // don't save
-
-            var msg = MiscStrings.changeFileWhileDirty;
-            if (Dirty)
-                return MessageBox.Show(this,
-                    msg, "Sounds", MessageBoxButtons.YesNoCancel,
-                    MessageBoxIcon.Warning);
-            else return DialogResult.No;
-        }
-
-        private void newPlaylistToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            switch (ChangePlaylistAskDirty())
-            {
-                case DialogResult.Yes:
-                    SavePlaylist(false);
-                    break;
-                case DialogResult.No: break;
-                default: return;
-            }
-            if (ChangePlaylistAskStop(MiscStrings.newFileWhilePlaying))
-                NewPlaylist();
-        }
-
-        private void openPlaylistToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            switch (ChangePlaylistAskDirty())
-            {
-                case DialogResult.Yes:
-                    SavePlaylist(false);
-                    break;
-                case DialogResult.No: break;
-                default: return;
-            }
-            if (ChangePlaylistAskStop(MiscStrings.changeFileWhilePlaying) && 
-                openPlaylistDialog.ShowDialog(this) == DialogResult.OK)
-            {
-                OpenPlaylist(openPlaylistDialog.FileName);
-            }
-        }
-
-        private void savePlaylistToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            SavePlaylist(false);
-        }
-
-        private void savePlaylistAsToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            SavePlaylist(true);
-        }
-
         private void propertiesToolStripMenuItem_Click(object sender, EventArgs e)
         {
             ShowPropertiesDialog(false);
         }
 
-        private void listView1_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            UpdateMenus();
-        }
-
         private void listView1_ItemActivate(object sender, EventArgs e)
         {
             PlayAndSet(true);
-        }
-
-        private void addDirectoryToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            if (folderBrowserDialog1.ShowDialog(this) == DialogResult.OK)
-            {
-                AddDirectory(folderBrowserDialog1.SelectedPath, false);
-            }
-        }
-
-        private void repeatToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            repeat = repeatToolStripMenuItem.Checked;
-        }
-
-        private void shuffleToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            Shuffle();
         }
 
         private void listView1_ItemDrag(object sender, ItemDragEventArgs e)
@@ -1087,10 +579,7 @@ namespace Sounds
                         }
                         else if(File.Exists(f))
                         {
-                            if (M3UParser.FileIsM3U(f))
-                                OpenPlaylist(f, Properties.Settings.Default.FileDragAppendPlaylist);
-                            else
-                                AddFile(f);
+                            AddFile(f);
                         }
                     }
                 }
@@ -1116,70 +605,9 @@ namespace Sounds
             }
         }
 
-        private void volumeUpToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            Volume += (VolumeIncrement * 0.01);
-        }
-
-        private void volumeDownToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            Volume -= (VolumeIncrement * 0.01);
-        }
-
-        private void muteToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            Volume = 0;
-        }
-
-        private void togglePlaybackToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            PlayPauseToggle();
-        }
-
-        private void skipAheadToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            mp.Position = mp.Position.Add(new TimeSpan(0, 0, TimeIncrement));
-        }
-
-        private void rewindToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            mp.Position = mp.Position.Subtract(new TimeSpan(0, 0, TimeIncrement));
-        }
-
         private void albumArtBox_Click(object sender, EventArgs e)
         {
             ShowPropertiesDialog(true);
-        }
-
-        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
-        {
-            // for ephemereal playlists, if it's not a saved playlist and no
-            // files, don't bother asking
-            switch (ChangePlaylistAskDirty())
-            {
-                case DialogResult.Yes:
-                    SavePlaylist(false);
-                    break;
-                case DialogResult.No: break;
-                default:
-                    e.Cancel = true;
-                    return;
-            }
-            if (!ChangePlaylistAskStop(MiscStrings.quitWhilePlaying))
-            {
-                e.Cancel = true;
-                return;
-            }
-            // save settings at end
-            Properties.Settings.Default.ShowToolBar = showToolBar;
-            Properties.Settings.Default.ShowStatusBar = showStatusBar;
-            Properties.Settings.Default.ShowInfoPane = showInfoPane;
-            Properties.Settings.Default.DeleteOnNext = deleteOnNext;
-            Properties.Settings.Default.Repeat = repeat;
-            Properties.Settings.Default.ShowConfirmationDialogs = showDialogs;
-            Properties.Settings.Default.VolumeShortcutIncrement = volIncrement;
-            Properties.Settings.Default.TimeShortcutSeconds = timeIncrement;
-            Properties.Settings.Default.Save();
         }
 
         private void playContextToolStripMenuItem_Click(object sender, EventArgs e)
@@ -1187,44 +615,6 @@ namespace Sounds
             // the menu/toolbar item will play the same track when paused; this
             // forcibly plays the selected track
             PlayAndSet(true);
-        }
-
-        private void preferencesToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            var pd = new PrefsDialog()
-            {
-                ShowToolbar = showToolBar,
-                ShowStatusbar = showStatusBar,
-                ShowInfoPane = showInfoPane,
-                DeleteOnTrackChange = deleteOnNext,
-                ShowConfirmationDialogs = showDialogs,
-                VolumeIncrement = volIncrement,
-                TimeIncrement = timeIncrement,
-            };
-            if (pd.ShowDialog(this) == DialogResult.OK)
-            {
-                showToolBar = pd.ShowToolbar;
-                showStatusBar = pd.ShowStatusbar;
-                showInfoPane = pd.ShowInfoPane;
-                deleteOnNext = pd.DeleteOnTrackChange;
-                showDialogs = pd.ShowConfirmationDialogs;
-                VolumeIncrement = pd.VolumeIncrement;
-                TimeIncrement = pd.TimeIncrement;
-                UpdateUI();
-            }
-        }
-
-        private void appendPlaylistToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            if (openPlaylistDialog.ShowDialog(this) == DialogResult.OK)
-            {
-                OpenPlaylist(openPlaylistDialog.FileName, true);
-            }
-        }
-
-        private void aboutSoundsToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            new AboutForm().ShowDialog(this);
         }
 
         private void selectAllToolStripMenuItem_Click(object sender, EventArgs e)
@@ -1242,21 +632,11 @@ namespace Sounds
                 .Select(x => ((TagLib.File)x.Tag).Name);
             Clipboard.SetData(ClipboardType, items.ToList());
             // to update paste; cut will call delete which does this for us
-            if (updateMenus)
-            {
-                UpdateMenus();
-            }
         }
 
         private void copyToolStripMenuItem_Click(object sender, EventArgs e)
         {
             CopySelected();
-        }
-
-        private void cutToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            CopySelected(false);
-            DeleteSelected();
         }
 
         private void pasteToolStripMenuItem_Click(object sender, EventArgs e)
@@ -1274,7 +654,6 @@ namespace Sounds
                     if (shouldUpdate)
                     {
                         Dirty = true;
-                        UpdatePlaylistTotal();
                     }
                 }
             }
