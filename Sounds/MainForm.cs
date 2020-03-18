@@ -1,17 +1,9 @@
-﻿using Microsoft.WindowsAPICodePack.Taskbar;
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
+﻿using System;
 using System.Data;
-using System.Diagnostics;
 using System.Drawing;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Media;
 
@@ -32,10 +24,8 @@ namespace Sounds
         TagLib.File activeFile = null;
         // not if the MediaPlayer is, but if we should at all
         bool playing = false;
-        double vol; // we need to keep this ourselves; mp.Stop resets mp.Volume
 
         // setings
-        int volIncrement = 5; // for trackbar/keyboard
         int timeIncrement = 15;
         bool repeat = false;
         bool deleteOnNext = false;
@@ -62,34 +52,6 @@ namespace Sounds
             }
         }
 
-        double Volume
-        {
-            get
-            {
-                return vol;
-            }
-            set
-            {
-                // clamp value
-                vol = Math.Min(Math.Max(value, 0), 1);
-                mp.Volume = vol;
-                var simplePercent = new CultureInfo(CultureInfo.InvariantCulture.Name);
-                simplePercent.NumberFormat.PercentDecimalDigits = 0;
-                simplePercent.NumberFormat.PercentPositivePattern = 1;
-                volumeButton.Text = string.Format(simplePercent, "{0:P}", mp.Volume);
-                volumeStatusButton.Text = string.Format(simplePercent, "{0:P}", mp.Volume);
-            }
-        }
-
-        int VolumeIncrement
-        {
-            get { return volIncrement; }
-            set
-            {
-                volIncrement = value;
-            }
-        }
-
         int TimeIncrement
         {
             get { return timeIncrement; }
@@ -103,12 +65,6 @@ namespace Sounds
         public MainForm()
         {
             InitializeComponent();
-
-            // a new dropdown w/ a system rendering looks more like a panel
-            var dd = new ToolStripDropDown();
-            dd.RenderMode = ToolStripRenderMode.System;
-            volumeButton.DropDown = dd;
-            volumeStatusButton.DropDown = dd;
 
             mp.MediaEnded += (o, e) =>
             {
@@ -140,8 +96,8 @@ namespace Sounds
                 }
             };
 
-            // finally init UI by creating PL (args will override it)
-            //NewPlaylist();
+            AddDirectory("E:\\hanse\\Video\\HardStyle", true);
+            
         }
 
         private void MainForm_Shown(object sender, EventArgs e)
@@ -150,8 +106,6 @@ namespace Sounds
             // do initial init of menubar and such
             UpdateUI();
             UpdateTitle();
-            // mp's value is, but not the UI bits; do this to update them
-            Volume = 0.50;
         }
 
         public bool AddFile(string fileName, bool update = true)
@@ -269,7 +223,6 @@ namespace Sounds
             var u = new Uri(activeFile.Name, true);
 #pragma warning restore CS0618
             mp.Open(u);
-            mp.Volume = vol; // as Stop might have reset it
             mp.Play();
             UpdateTitle();
             UpdateUI();
@@ -537,72 +490,9 @@ namespace Sounds
             Previous();
         }
 
-        private void propertiesToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            ShowPropertiesDialog(false);
-        }
-
         private void listView1_ItemActivate(object sender, EventArgs e)
         {
             PlayAndSet(true);
-        }
-
-        private void listView1_ItemDrag(object sender, ItemDragEventArgs e)
-        {
-            DoDragDrop(e.Item, DragDropEffects.Move);
-        }
-
-        private void listView1_DragEnter(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                e.Effect = DragDropEffects.Copy;
-            }
-            else if (e.AllowedEffect == DragDropEffects.Move)
-            {
-                e.Effect = DragDropEffects.Move;
-            }
-        }
-
-        private void listView1_DragDrop(object sender, DragEventArgs e)
-        {
-            if (e.Effect == DragDropEffects.Copy)
-            {
-                if (e.Data.GetDataPresent(DataFormats.FileDrop))
-                {
-                    var data = (string[])e.Data.GetData(DataFormats.FileDrop);
-                    foreach (var f in data.OrderBy(x => x))
-                    {
-                        if (Directory.Exists(f))
-                        {
-                            AddDirectory(f);
-                        }
-                        else if(File.Exists(f))
-                        {
-                            AddFile(f);
-                        }
-                    }
-                }
-            }
-            else if (e.Effect == DragDropEffects.Move)
-            {
-                var cp = listView1.PointToClient(new Point(e.X, e.Y));
-                ListViewItem dragToItem = listView1.GetItemAt(cp.X, cp.Y);
-                if (!listView1.SelectedItems.Contains(dragToItem))
-                {
-                    var selectedItems = listView1.SelectedItems.Cast<ListViewItem>().ToList();
-
-                    var dropIndex = dragToItem?.Index ?? listView1.Items.Count;
-
-                    foreach (var i in selectedItems)
-                        listView1.Items.Insert(dropIndex++, (ListViewItem)i.Clone());
-
-                    foreach (var i in selectedItems)
-                        i.Remove();
-
-                    Dirty = true;
-                }
-            }
         }
 
         private void albumArtBox_Click(object sender, EventArgs e)
@@ -610,72 +500,5 @@ namespace Sounds
             ShowPropertiesDialog(true);
         }
 
-        private void playContextToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            // the menu/toolbar item will play the same track when paused; this
-            // forcibly plays the selected track
-            PlayAndSet(true);
-        }
-
-        private void selectAllToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            foreach (ListViewItem i in listView1.Items)
-                i.Selected = true;
-        }
-
-        public void CopySelected(bool updateMenus = true)
-        {
-            // TODO: we parse this later using existing code because easier
-            // but we could instead just pass TagLib.File to them directly
-            // (if those even serialize?)
-            var items = listView1.SelectedItems.Cast<ListViewItem>()
-                .Select(x => ((TagLib.File)x.Tag).Name);
-            Clipboard.SetData(ClipboardType, items.ToList());
-            // to update paste; cut will call delete which does this for us
-        }
-
-        private void copyToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            CopySelected();
-        }
-
-        private void pasteToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            if (Clipboard.ContainsData(ClipboardType))
-            {
-                var items = (List<string>)Clipboard.GetData(ClipboardType);
-                if (items != null && items.Count > 0)
-                {
-                    var shouldUpdate = false;
-                    foreach (var i in items)
-                    {
-                        shouldUpdate = AddFile(i, false) || shouldUpdate;
-                    }
-                    if (shouldUpdate)
-                    {
-                        Dirty = true;
-                    }
-                }
-            }
-        }
-
-        private void listView1_MouseUp(object sender, MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Right)
-            {
-                var item = listView1.GetItemAt(e.X, e.Y);
-                if (item != null)
-                {
-                    // focused on an item
-                    playlistContextMenu.Show(listView1, e.Location);
-                }
-                // we could also test for headers?
-                else
-                {
-                    // not focused on an item
-                    playlistUnselectedContextMenu.Show(listView1, e.Location);
-                }
-            }
-        }
     }
 }
