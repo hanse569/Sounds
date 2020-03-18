@@ -13,13 +13,6 @@ namespace Sounds
     {
         const string ClipboardType = "SoundsItem";
 
-        // some take Icons, not Bitmaps
-        Icon stopIcon = Icon.FromHandle(Properties.Resources.Stop.GetHicon());
-        Icon playIcon = Icon.FromHandle(Properties.Resources.Play.GetHicon());
-        Icon prevIcon = Icon.FromHandle(Properties.Resources.Previous.GetHicon());
-        Icon nextIcon = Icon.FromHandle(Properties.Resources.Next.GetHicon());
-        Icon pauseIcon = Icon.FromHandle(Properties.Resources.Pause.GetHicon());
-
         MediaPlayer mp = new MediaPlayer();
         TagLib.File activeFile = null;
         // not if the MediaPlayer is, but if we should at all
@@ -102,16 +95,12 @@ namespace Sounds
 
         private void MainForm_Shown(object sender, EventArgs e)
         {
-            // we need to do it when the form is visible so taskbar updates work
-            // do initial init of menubar and such
             UpdateUI();
             UpdateTitle();
         }
 
         public bool AddFile(string fileName, bool update = true)
         {
-            // HACK: ignore Mac droppings that confuse TagLib when we get
-            // aggressive with adding directories. (consider making a pref?)
             if (Path.GetFileName(fileName).StartsWith("._"))
                 return false;
 
@@ -121,11 +110,9 @@ namespace Sounds
                 var f = TagLib.File.Create(fileName);
                 if (f.Properties?.MediaTypes != TagLib.MediaTypes.Audio)
                 {
-                    // we don't want it
                     return false;
                 }
                 var lvi = new ListViewItem();
-                // fall back to filename
                 lvi.Text = f.Tag.Title ?? f.Name;
                 var trackNumber = f.Tag.TrackCount > 0 ?
                     string.Format("{0}/{1}", f.Tag.Track, f.Tag.TrackCount)
@@ -143,14 +130,8 @@ namespace Sounds
                 listView1.Items.Add(lvi);
                 doAdd = true;
             }
-            catch (TagLib.UnsupportedFormatException)
-            {
-                // not needed
-            }
-            catch (TagLib.CorruptFileException)
-            {
-                // should warn the user
-            }
+            catch (TagLib.UnsupportedFormatException){}
+            catch (TagLib.CorruptFileException){}
             finally
             {
                 if (doAdd && update)
@@ -210,16 +191,9 @@ namespace Sounds
             }
         }
 
-        /// <summary>
-        /// Plays the song set as the active track.
-        /// </summary>
-        /// <remarks>
-        /// It's the caller's responsibility to set the active track.
-        /// </remarks>
         public void PlayActive()
         {
 #pragma warning disable CS0618
-            // HACK: It's deprecated, but MediaPlayer doesn't like escaped URIs
             var u = new Uri(activeFile.Name, true);
 #pragma warning restore CS0618
             mp.Open(u);
@@ -237,7 +211,6 @@ namespace Sounds
         {
             var fileNameTitle = string.IsNullOrEmpty(playlistFile) ?
                 MiscStrings.untitledPlaylist : Path.GetFileName(playlistFile);
-            // Recommended if dirty if turned into a property?
             var fileNameFinalTitle = string.Format("{0}{1}",
                 fileNameTitle, Dirty ? "*" : "");
             if (activeFile != null)
@@ -256,15 +229,10 @@ namespace Sounds
             }
             else
             {
-                // nop it out
                 Text = fileNameFinalTitle;
             }
         }
 
-        // Metadata and such
-        // TODO: needs optimization. profiler says we're churning, but
-        // album art is fine. My guess is emboldening. [album art change
-        // moved to Title.]
         public void UpdateUI()
         {
             if (activeFile != null)
@@ -282,14 +250,12 @@ namespace Sounds
 
                 panel1.Visible = true;
 
-                // embolden the active song
                 var newBoldItem = listView1.Items.Cast<ListViewItem>().FirstOrDefault(x => x.Tag == activeFile);
                 if (newBoldItem != null)
                     newBoldItem.Font = new Font(listView1.Font, FontStyle.Bold);
             }
             else
             {
-                // nop it out
                 titleLabel.Text = string.Empty;
                 albumLabel.Text = string.Empty;
                 artistLabel.Text = string.Empty;
@@ -303,8 +269,7 @@ namespace Sounds
                 panel1.Visible = false;
 
             }
-
-            // we can run this regardless
+            
             errorMessageLabel.Text = string.Empty;
             foreach (var lvi in listView1.Items.Cast<ListViewItem>().Where(x => x.Tag != activeFile))
             {
@@ -316,7 +281,6 @@ namespace Sounds
         {
             get
             {
-                // generating an image can be complicated
                 var pictureStream = activeFile.Tag.Pictures.Where(x => x.Type == TagLib.PictureType.FrontCover).FirstOrDefault()?.Data?.Data;
                 if (pictureStream != null)
                 {
@@ -328,12 +292,9 @@ namespace Sounds
                 }
                 else
                 {
-                    // reasonable fallback
                     if (activeFile != null)
                     {
                         var containing = Path.GetDirectoryName(activeFile.Name);
-                        // TODO, add more of these, and make them more scalable
-                        // also figure out how to integrate this into the properties dialog
                         if (File.Exists(Path.Combine(containing, "cover.jpg")))
                         {
                             return new Bitmap(Path.Combine(containing, "cover.jpg"));
@@ -447,8 +408,6 @@ namespace Sounds
 
         private void stopToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            // the Stop function is called by Next and such which will call
-            // delete themselves. if the user manually stops, do deletion here.
             DeleteOnChange(activeFile);
             Stop();
         }
@@ -461,7 +420,6 @@ namespace Sounds
         private void trackBarSyncTimer_Tick(object sender, EventArgs e)
         {
             var value = Convert.ToInt32(mp.Position.TotalSeconds);
-            // only update the trackbar if value =< max, to avoid races
             if (positionTrackBar.Maximum >= value)
             {
                 positionTrackBar.Value = value;
@@ -481,7 +439,6 @@ namespace Sounds
 
         private void trackBar1_Scroll(object sender, EventArgs e)
         {
-            // this is only invoked when the user scrolls
             mp.Position = new TimeSpan(0, 0, 0, positionTrackBar.Value);
         }
 
