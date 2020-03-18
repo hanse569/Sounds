@@ -21,10 +21,6 @@ namespace Sounds
         // setings
         int timeIncrement = 15;
         bool repeat = false;
-        bool deleteOnNext = false;
-
-        string playlistFile = null;
-        bool dirty = false;
 
         bool Paused
         {
@@ -132,13 +128,6 @@ namespace Sounds
             }
             catch (TagLib.UnsupportedFormatException){}
             catch (TagLib.CorruptFileException){}
-            finally
-            {
-                if (doAdd && update)
-                {
-                    Dirty = true; // will get unset by Open if so
-                }
-            }
             return doAdd;
         }
 
@@ -149,20 +138,7 @@ namespace Sounds
             {
                 didAdd = AddFile(f, false) || didAdd;
             }
-            if (didAdd && update)
-            {
-                Dirty = true;
-            }
             return didAdd;
-        }
-
-        void DeleteOnChange(TagLib.File old)
-        {
-            if (deleteOnNext && old != null)
-            {
-                listView1.Items.Cast<ListViewItem>().Where(x => x.Tag == old).First().Remove();
-                Dirty = listView1.Items.Count > 0 && playlistFile != null;
-            }
         }
 
         public void PlayAndSet(bool playSelected)
@@ -174,7 +150,6 @@ namespace Sounds
             else
             {
                 var oldActiveFile = activeFile;
-                DeleteOnChange(oldActiveFile);
 
                 if (listView1.SelectedItems.Count > 0)
                 {
@@ -209,10 +184,8 @@ namespace Sounds
 
         public void UpdateTitle()
         {
-            var fileNameTitle = string.IsNullOrEmpty(playlistFile) ?
-                MiscStrings.untitledPlaylist : Path.GetFileName(playlistFile);
-            var fileNameFinalTitle = string.Format("{0}{1}",
-                fileNameTitle, Dirty ? "*" : "");
+            string fileNameFinalTitle = "??pas de playlist??";
+
             if (activeFile != null)
             {
                 var title = activeFile.Tag.Title;
@@ -313,20 +286,6 @@ namespace Sounds
             }
         }
 
-        public bool Dirty
-        {
-            get
-            {
-                return dirty;
-            }
-
-            set
-            {
-                dirty = value;
-                UpdateTitle();
-            }
-        }
-
         public void Stop()
         {
             trackBarSyncTimer.Enabled = false;
@@ -343,7 +302,6 @@ namespace Sounds
         {
             var oldActiveFile = activeFile;
             activeFile = (TagLib.File)listView1.Items.Cast<ListViewItem>().TakeWhile(x => x.Tag != activeFile).LastOrDefault()?.Tag;
-            DeleteOnChange(oldActiveFile);
 
             if (activeFile != null && playing)
             {
@@ -359,7 +317,6 @@ namespace Sounds
         {
             var oldActiveFile = activeFile;
             activeFile = (TagLib.File)listView1.Items.Cast<ListViewItem>().SkipWhile(x => x.Tag != activeFile).Skip(1).FirstOrDefault()?.Tag;
-            DeleteOnChange(oldActiveFile);
 
             if (activeFile != null && playing)
             {
@@ -408,7 +365,6 @@ namespace Sounds
 
         private void stopToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            DeleteOnChange(activeFile);
             Stop();
         }
 
